@@ -1,4 +1,4 @@
-# Puzzle — Image viewer & tile composer
+# PuzzleMaker — Image viewer & tile composer
 
 Small Tkinter + Pillow utility to:
 - open an image (processing is done on the full-resolution copy; GUI shows a scaled preview),
