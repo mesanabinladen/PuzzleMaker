@@ -1,0 +1,3 @@
+x Pyinstaller
+
+pyinstaller --onefile --noconsole --icon=puzzle_icon.ico --name "BaBoJame_Puzzle" main.py  

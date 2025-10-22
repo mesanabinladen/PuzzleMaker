@@ -3,6 +3,7 @@ from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk, ImageDraw
 from pathcreator import init_params, gen_dh, gen_dv, gen_db
 import os
+import sys
 
 current_pil_img_full = None      # immagine PIL in dimensione originale, usata per l'elaborazione
 current_pil_img_display = None   # immagine PIL ridotta, usata solo per la visualizzazione
@@ -202,14 +203,29 @@ def create_overlay_and_composite(pil_img, rows, cols, border_pct):
             x_off += col_widths[c]
         y_off += row_heights[r]
 
-   # salva il file puzzle.jpg nella stessa cartella del .py
-    try:
-        out_path = os.path.join(os.path.dirname(__file__), "puzzle.jpg")
-    except Exception:
-        out_path = os.path.join(os.getcwd(), "puzzle.jpg")
-    grid_img.save(out_path, format="JPEG", quality=95)
-    messagebox.showinfo("Salvato", f"Salvata immagine: {out_path}")
+    # determina cartella di uscita robusta per eseguibile e per script
+    if getattr(sys, "frozen", False):
+        # quando PyInstaller crea l'exe, sys.executable punta all'eseguibile
+        base_dir = os.path.dirname(sys.executable)
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
 
+    out_path = os.path.join(base_dir, "puzzle.jpg")
+
+    # prova a salvare; se fallisce (permessi), salva nella cartella utente Pictures
+    try:
+        grid_img.save(out_path, format="JPEG", quality=95)
+    except Exception:
+        fallback_dir = os.path.join(os.path.expanduser("~"), "Pictures")
+        try:
+            os.makedirs(fallback_dir, exist_ok=True)
+        except Exception:
+            fallback_dir = os.path.expanduser("~")
+        out_path = os.path.join(fallback_dir, "puzzle.jpg")
+        grid_img.save(out_path, format="JPEG", quality=95)
+
+    messagebox.showinfo("Salvato", f"Salvata immagine: {out_path}")
+    
     return original_with_borders
 
 def add_jigsaw_path(pil_img, draw=False):
