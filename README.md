@@ -27,12 +27,12 @@ Run
   ```
 
 Usage
-1. Click "Apri immagine..." and choose an image file.
+1. Click "Open Image..." and choose an image file.
 2. Set:
    - Rows (N)
    - Columns (M)
    - Border (%) — percent expansion per cell (e.g. 20 → each cell grows by 20%).
-3. Click "Aggiorna" to redraw the overlay preview.
+3. Click "Update" to redraw the overlay preview.
 4. The app saves a single composed image named `puzzle.jpg` (see details below).
 
 Where `puzzle.jpg` is saved
