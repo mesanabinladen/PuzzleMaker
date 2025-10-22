@@ -2,10 +2,12 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk, ImageDraw
 from pathcreator import init_params, gen_dh, gen_dv, gen_db
-import io
+import os
 
-current_pil_img = None  # immagine PIL (ridimensionata) mantenuta in memoria
+current_pil_img_full = None      # immagine PIL in dimensione originale, usata per l'elaborazione
+current_pil_img_display = None   # immagine PIL ridotta, usata solo per la visualizzazione
 images_refs = []  # per evitare garbage collection delle PhotoImage
+PREVIEW_WINDOW = False  # se True apre una finestra separata per le celle
 
 def mask_other_cells(pil_img, tot_rows, tot_cols, row, col, paths_h, paths_v):
     
@@ -112,11 +114,17 @@ def create_overlay_and_composite(pil_img, rows, cols, border_pct):
     inline = (255, 0, 0, 255)  # colore bordo con alpha maggiore
     outline = (0, 0, 255, 255)  # colore bordo con alpha maggiore
 
-    # crea finestra e frame per le immagini
-    top = tk.Toplevel(root)
-    top.title("Celle ricomposte")
-    frame = tk.Frame(top, bg='white')
-    frame.pack(padx=10, pady=10)
+    if PREVIEW_WINDOW:
+        # crea finestra e frame per le immagini
+        top = tk.Toplevel(root)
+        top.title("Celle ricomposte")
+        frame = tk.Frame(top, bg='white')
+        frame.pack(padx=10, pady=10)
+
+    # raccolte per costruire l'immagine finale
+    tiles_grid = [[None for _ in range(cols)] for _ in range(rows)]
+    col_widths = [0] * cols
+    row_heights = [0] * rows
 
     for r in range(rows):
         for c in range(cols):
@@ -163,10 +171,44 @@ def create_overlay_and_composite(pil_img, rows, cols, border_pct):
             else:
                 tile.paste(cropped, (0, 0))
 
-            tk_tile = ImageTk.PhotoImage(tile)
-            lbl = tk.Label(frame, image=tk_tile, bd=1, relief='solid')
-            lbl.grid(row=r, column=c)
-            images_refs.append(tk_tile)
+            # salva tile nella griglia e aggiorna dimensioni colonne/righe
+            tiles_grid[r][c] = tile
+            col_widths[c] = max(col_widths[c], tile.width)
+            row_heights[r] = max(row_heights[r], tile.height)
+           
+            if PREVIEW_WINDOW:
+                tk_tile = ImageTk.PhotoImage(tile)
+                lbl = tk.Label(frame, image=tk_tile, bd=1, relief='solid')
+                lbl.grid(row=r, column=c)
+                images_refs.append(tk_tile)
+
+    # costruisci immagine composita della griglia (come appare nella finestra)
+    total_w = sum(col_widths)
+    total_h = sum(row_heights)
+    grid_img = Image.new("RGB", (total_w, total_h), (255,255,255))
+
+    y_off = 0
+    for r in range(rows):
+        x_off = 0
+        for c in range(cols):
+            tile = tiles_grid[r][c]
+            # converti tile RGBA in RGB su sfondo bianco
+            tile_rgb = Image.new("RGB", tile.size, (255,255,255))
+            if tile.mode == "RGBA":
+                tile_rgb.paste(tile, mask=tile.split()[3])
+            else:
+                tile_rgb.paste(tile)
+            grid_img.paste(tile_rgb, (x_off, y_off))
+            x_off += col_widths[c]
+        y_off += row_heights[r]
+
+   # salva il file puzzle.jpg nella stessa cartella del .py
+    try:
+        out_path = os.path.join(os.path.dirname(__file__), "puzzle.jpg")
+    except Exception:
+        out_path = os.path.join(os.getcwd(), "puzzle.jpg")
+    grid_img.save(out_path, format="JPEG", quality=95)
+    messagebox.showinfo("Salvato", f"Salvata immagine: {out_path}")
 
     return original_with_borders
 
@@ -202,22 +244,29 @@ def add_jigsaw_path(pil_img, draw=False):
     return composite, paths_h, paths_v
 
 def display_image_with_overlay():
-    global current_pil_img
-    if current_pil_img is None:
+    global current_pil_img_full
+    if current_pil_img_full is None:
         return
     rows = entry_rows.get()
     cols = entry_cols.get()
     border_pct = entry_border.get()
 
-    composite = create_overlay_and_composite(current_pil_img, rows, cols, border_pct)
-    tk_img = ImageTk.PhotoImage(composite)
+    composite_full = create_overlay_and_composite(current_pil_img_full, rows, cols, border_pct)
+    
+      # scala il composito per la visualizzazione (non modifica l'immagine full)
+    max_w, max_h = 800, 600  # dimensione massima visibile (regolabile)
+    composite_display = composite_full.copy()
+    composite_display.thumbnail((max_w, max_h), Image.LANCZOS)
+    current_pil_img_display = composite_display
+    
+    tk_img = ImageTk.PhotoImage(current_pil_img_display)
     canvas.config(width=tk_img.width(), height=tk_img.height())
     canvas.delete('all')
     canvas.create_image(0, 0, anchor='nw', image=tk_img, tags='img')
     canvas.image = tk_img  # mantieni riferimento
 
 def open_and_show_image():
-    global current_pil_img
+    global current_pil_img_full, current_pil_img_display
     path = filedialog.askopenfilename(
         title="Scegli un'immagine",
         filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.gif"), ("All files", "*.*")]
@@ -230,10 +279,15 @@ def open_and_show_image():
         messagebox.showerror("Errore", f"Impossibile aprire l'immagine:\n{e}")
         return
 
-    # ridimensiona per adattare alla finestra (max 800x600)
+   # conserva la versione full (converti in RGBA per operazioni con alpha se serve)
+    current_pil_img_full = img.convert("RGBA")
+
+    # crea una copia ridotta SOLO per la visualizzazione immediata (opzionale)
     max_w, max_h = 800, 600
-    img.thumbnail((max_w, max_h), Image.LANCZOS)
-    current_pil_img = img.copy()
+    disp = current_pil_img_full.copy()
+    disp.thumbnail((max_w, max_h), Image.LANCZOS)
+    current_pil_img_display = disp
+
     display_image_with_overlay()
 
 root = tk.Tk()
@@ -264,7 +318,7 @@ entry_border.grid(row=0, column=6, padx=(4,8))
 
 # bottone per aggiornare la sovrapposizione senza riaprire immagine
 def update_grid():
-    if hasattr(canvas, 'image') or current_pil_img is not None:
+    if hasattr(canvas, 'image') or current_pil_img_full is not None:
         display_image_with_overlay()
 
 update_btn = tk.Button(ctrl_frame, text="Aggiorna", command=update_grid)
