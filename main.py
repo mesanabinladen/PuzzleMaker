@@ -118,7 +118,7 @@ def create_overlay_and_composite(pil_img, rows, cols, border_pct):
     if PREVIEW_WINDOW:
         # crea finestra e frame per le immagini
         top = tk.Toplevel(root)
-        top.title("Celle ricomposte")
+        top.title("Tile Preview")
         frame = tk.Frame(top, bg='white')
         frame.pack(padx=10, pady=10)
 
@@ -224,7 +224,7 @@ def create_overlay_and_composite(pil_img, rows, cols, border_pct):
         out_path = os.path.join(fallback_dir, "puzzle.jpg")
         grid_img.save(out_path, format="JPEG", quality=95)
 
-    messagebox.showinfo("Salvato", f"Salvata immagine: {out_path}")
+    messagebox.showinfo("Saved", f"Image saved: {out_path}")
     
     return original_with_borders
 
@@ -284,7 +284,7 @@ def display_image_with_overlay():
 def open_and_show_image():
     global current_pil_img_full, current_pil_img_display
     path = filedialog.askopenfilename(
-        title="Scegli un'immagine",
+        title="Choose an image file",
         filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.gif"), ("All files", "*.*")]
     )
     if not path:
@@ -292,7 +292,7 @@ def open_and_show_image():
     try:
         img = Image.open(path)
     except Exception as e:
-        messagebox.showerror("Errore", f"Impossibile aprire l'immagine:\n{e}")
+        messagebox.showerror("Error", f"Impossible to open:\n{e}")
         return
 
    # conserva la versione full (converti in RGBA per operazioni con alpha se serve)
@@ -307,27 +307,27 @@ def open_and_show_image():
     display_image_with_overlay()
 
 root = tk.Tk()
-root.title("Visualizzatore immagine")
+root.title("Image Preview with Jigsaw Overlay")
 root.resizable(False, False)
 
 # Controlli: pulsante + campi N (righe), M (colonne) e bordo (%)
 ctrl_frame = tk.Frame(root)
 ctrl_frame.pack(padx=10, pady=10, anchor='w')
 
-btn = tk.Button(ctrl_frame, text="Apri immagine...", command=open_and_show_image)
+btn = tk.Button(ctrl_frame, text="Open Image...", command=open_and_show_image)
 btn.grid(row=0, column=0, padx=(0,8))
 
-tk.Label(ctrl_frame, text="Righe (N):").grid(row=0, column=1, sticky='e')
+tk.Label(ctrl_frame, text="Rows:").grid(row=0, column=1, sticky='e')
 entry_rows = tk.Entry(ctrl_frame, width=5)
 entry_rows.insert(0, "3")
 entry_rows.grid(row=0, column=2, padx=(4,12))
 
-tk.Label(ctrl_frame, text="Colonne (M):").grid(row=0, column=3, sticky='e')
+tk.Label(ctrl_frame, text="Columns:").grid(row=0, column=3, sticky='e')
 entry_cols = tk.Entry(ctrl_frame, width=5)
 entry_cols.insert(0, "3")
 entry_cols.grid(row=0, column=4, padx=(4,8))
 
-tk.Label(ctrl_frame, text="Bordo (%):").grid(row=0, column=5, sticky='e')
+tk.Label(ctrl_frame, text="Border (%):").grid(row=0, column=5, sticky='e')
 entry_border = tk.Entry(ctrl_frame, width=6)
 entry_border.insert(0, "20")
 entry_border.grid(row=0, column=6, padx=(4,8))
@@ -337,7 +337,7 @@ def update_grid():
     if hasattr(canvas, 'image') or current_pil_img_full is not None:
         display_image_with_overlay()
 
-update_btn = tk.Button(ctrl_frame, text="Aggiorna", command=update_grid)
+update_btn = tk.Button(ctrl_frame, text="Update", command=update_grid)
 update_btn.grid(row=0, column=7, padx=(8,0))
 
 # Canvas per mostrare l'immagine e l'overlay
