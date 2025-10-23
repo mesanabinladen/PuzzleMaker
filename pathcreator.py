@@ -13,6 +13,7 @@ width, height = 300, 200
 radius = 2.0
 offset = 0.0
 vertical = False
+BEZIER_BASE_STEPS = 100 # valore base attuale
 
 def init_params(num_x, num_y, w, h, r=2.0, tabsize=20, jitter=4):
     global xn, yn, width, height, radius, t, j
@@ -95,7 +96,10 @@ def next():
     e = uniform(-j, j)
 
 # Funzione per calcolare punti di una curva di Bézier cubica
-def bezier_cubic(p0, p1, p2, p3, steps=20):
+def bezier_cubic(p0, p1, p2, p3):
+    
+    steps = BEZIER_BASE_STEPS
+
     points = []
     for t in range(steps + 1):
         t = t / steps

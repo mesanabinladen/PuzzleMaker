@@ -4,6 +4,7 @@ from PIL import Image, ImageTk, ImageDraw
 from pathcreator import init_params, gen_dh, gen_dv, gen_db
 import os
 import sys
+import io
 
 current_pil_img_full = None      # immagine PIL in dimensione originale, usata per l'elaborazione
 current_pil_img_display = None   # immagine PIL ridotta, usata solo per la visualizzazione
@@ -77,6 +78,100 @@ def mask_other_cells(pil_img, tot_rows, tot_cols, row, col, paths_h, paths_v):
 
     return darkened
 
+def save_jpeg_bytes(base_dir, jpeg_bytes, name="puzzle.jpg"):
+    out_path = os.path.join(base_dir, name)
+
+    # try to save; on permission error, fallback to user's Pictures (or home) and retry
+    try:
+        with open(out_path, "wb") as f:
+            f.write(jpeg_bytes)
+    except Exception:
+        fallback_dir = os.path.join(os.path.expanduser("~"), "Pictures")
+        try:
+            os.makedirs(fallback_dir, exist_ok=True)
+        except Exception:
+            fallback_dir = os.path.expanduser("~")
+        out_path = os.path.join(fallback_dir, name)
+        with open(out_path, "wb") as f:
+            f.write(jpeg_bytes)
+
+def save_final_image_for_cutting(grid_img):
+
+    # determina cartella di uscita robusta per eseguibile e per script
+    if getattr(sys, "frozen", False):
+        # quando PyInstaller crea l'exe, sys.executable punta all'eseguibile
+        base_dir = os.path.dirname(sys.executable)
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # JPEG save options: highest quality, no chroma subsampling, progressive, force 320 PPI
+    quality = 100
+    subsampling = 0
+    progressive = True
+    optimize = True
+    dpi = (320, 320)
+
+    # crea buffer JPEG in memoria (con DPI)
+    buf = io.BytesIO()
+    grid_img.save(buf, "JPEG",
+                  quality=quality,
+                  subsampling=subsampling,
+                  progressive=progressive,
+                  optimize=optimize,
+                  dpi=dpi)
+    buf.seek(0)
+    jpeg_bytes = buf.getvalue()
+
+    save_jpeg_bytes(base_dir, jpeg_bytes, "puzzle_full.jpg")
+    img_320ppi = Image.open(io.BytesIO(jpeg_bytes)) 
+
+    # sapendo quanto è grosso un pezzo di puzzle, suddividi l'immagine in fogli A4
+    img_w, img_h = img_320ppi.size
+    a4_w, a4_h = 2480, 3508  # dimensioni A4 a 320 PPI    
+
+    rows = int(entry_rows.get())
+    cols = int(entry_cols.get())
+
+    dim_x_casella = img_w // cols
+    dim_y_casella = img_h // rows
+
+    # il numero di pagine dipende dal massimo valore di caselle che possono stare in una pagina A4
+    max_x_caselle_per_pagina = a4_w // dim_x_casella
+    max_y_caselle_per_pagina = a4_h // dim_y_casella
+
+    num_fogli_A4_x = 1 + img_w // (max_x_caselle_per_pagina * dim_x_casella)
+    num_fogli_A4_y = 1 + img_h // (max_y_caselle_per_pagina * dim_y_casella)
+
+    # ora per ogni foglio A4 preparo una immagine Pillow con sfondo bianco
+    for foglio_x in range(num_fogli_A4_x):
+       for foglio_y in range(num_fogli_A4_y):
+
+            page_img = Image.new("RGB", (a4_w, a4_h), (255, 255, 255))
+            for py in range(max_y_caselle_per_pagina):
+                for px in range(max_x_caselle_per_pagina):
+                    src_x = (foglio_x * max_x_caselle_per_pagina * dim_x_casella) +  px * dim_x_casella
+                    src_y = (foglio_y * max_y_caselle_per_pagina * dim_y_casella) +  py * dim_y_casella
+
+                    # se esco dai limiti dell'immagine originale, esco
+                    if src_x + dim_x_casella >= img_w or src_y + dim_y_casella >= img_h:
+                        continue
+
+                    box = (src_x, src_y, src_x + dim_x_casella, src_y + dim_y_casella)
+                    tile = img_320ppi.crop(box)
+                    dest_x = px * dim_x_casella
+                    dest_y = py * dim_y_casella
+                    page_img.paste(tile, (dest_x, dest_y))
+
+            page_path = os.path.join(base_dir, f"puzzle_page_{foglio_x}-{foglio_y}.jpg")
+            page_img.save(page_path, "JPEG",
+                        quality=quality,
+                        subsampling=subsampling,
+                        progressive=progressive,
+                        optimize=optimize,
+                        dpi=dpi)
+
+    messagebox.showinfo("Saved", f"Images saved")   
+
 def create_overlay_and_composite(pil_img, rows, cols, border_pct):
     # pil_img: PIL Image in modalità RGB o RGBA
     try:
@@ -93,7 +188,7 @@ def create_overlay_and_composite(pil_img, rows, cols, border_pct):
     extra_h = int(cell_h * (border_pct / 100.0))
 
     # Inizializza i parametri per pathcreator
-    init_params(cols, rows, img_w, img_h, tabsize=0.6*border_pct, jitter=border_pct/10.0)
+    init_params(cols, rows, img_w, img_h, tabsize=0.7*border_pct, jitter=border_pct/10.0)
 
     # Applica i percorsi del puzzle
     pil_img, paths_h, paths_v = add_jigsaw_path(pil_img)
@@ -203,29 +298,9 @@ def create_overlay_and_composite(pil_img, rows, cols, border_pct):
             x_off += col_widths[c]
         y_off += row_heights[r]
 
-    # determina cartella di uscita robusta per eseguibile e per script
-    if getattr(sys, "frozen", False):
-        # quando PyInstaller crea l'exe, sys.executable punta all'eseguibile
-        base_dir = os.path.dirname(sys.executable)
-    else:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
+    # salva l'immagine finale
+    save_final_image_for_cutting(grid_img)
 
-    out_path = os.path.join(base_dir, "puzzle.jpg")
-
-    # prova a salvare; se fallisce (permessi), salva nella cartella utente Pictures
-    try:
-        grid_img.save(out_path, format="JPEG", quality=95)
-    except Exception:
-        fallback_dir = os.path.join(os.path.expanduser("~"), "Pictures")
-        try:
-            os.makedirs(fallback_dir, exist_ok=True)
-        except Exception:
-            fallback_dir = os.path.expanduser("~")
-        out_path = os.path.join(fallback_dir, "puzzle.jpg")
-        grid_img.save(out_path, format="JPEG", quality=95)
-
-    messagebox.showinfo("Saved", f"Image saved: {out_path}")
-    
     return original_with_borders
 
 def add_jigsaw_path(pil_img, draw=False):
@@ -343,8 +418,5 @@ update_btn.grid(row=0, column=7, padx=(8,0))
 # Canvas per mostrare l'immagine e l'overlay
 canvas = tk.Canvas(root, bg='gray')
 canvas.pack(padx=10, pady=(0,10))
-
-# Apri dialog all'avvio (opzionale)
-root.after(100, open_and_show_image)
 
 root.mainloop()
