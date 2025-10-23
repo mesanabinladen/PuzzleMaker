@@ -145,7 +145,6 @@ def save_final_image_for_cutting(grid_img):
     # ora per ogni foglio A4 preparo una immagine Pillow con sfondo bianco
     for foglio_x in range(num_fogli_A4_x):
        for foglio_y in range(num_fogli_A4_y):
-
             page_img = Image.new("RGB", (a4_w, a4_h), (255, 255, 255))
             for py in range(max_y_caselle_per_pagina):
                 for px in range(max_x_caselle_per_pagina):
@@ -153,7 +152,7 @@ def save_final_image_for_cutting(grid_img):
                     src_y = (foglio_y * max_y_caselle_per_pagina * dim_y_casella) +  py * dim_y_casella
 
                     # se esco dai limiti dell'immagine originale, esco
-                    if src_x + dim_x_casella >= img_w or src_y + dim_y_casella >= img_h:
+                    if src_x + dim_x_casella > img_w or src_y + dim_y_casella > img_h:
                         continue
 
                     box = (src_x, src_y, src_x + dim_x_casella, src_y + dim_y_casella)
