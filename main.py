@@ -10,13 +10,12 @@ current_pil_img_full = None      # immagine PIL in dimensione originale, usata p
 current_pil_img_display = None   # immagine PIL ridotta, usata solo per la visualizzazione
 images_refs = []  # per evitare garbage collection delle PhotoImage
 PREVIEW_WINDOW = False  # se True apre una finestra separata per le celle
+A4_TOTAL_W, A4_TOTAL_H = 2646, 3742  # dimensioni A4 a 320 PPI
 
 def mask_other_cells(pil_img, tot_rows, tot_cols, row, col, paths_h, paths_v):
     
     img_w, img_h = pil_img.size
 
-      # Crea immagine finale oscurata
-    darkened = Image.new("RGBA", (img_w, img_h), (255, 255, 255, 255))  # Sfondo bianco
     mask = Image.new("L", (img_w, img_h), 0)  # Maschera nera (opaca)
     mask_draw = ImageDraw.Draw(mask)
 
@@ -71,12 +70,18 @@ def mask_other_cells(pil_img, tot_rows, tot_cols, row, col, paths_h, paths_v):
     # print(f"Contour points for {col} {row}:")
     # print(contour)
 
-    mask_draw.polygon(contour, fill=255)  # Bianco = trasparente
+    mask_draw.polygon(contour, fill=255)  # 255 = trasparente (è l'alpha)
 
-    # Incolla l'immagine composita usando la maschera
-    darkened.paste(pil_img, (0, 0), mask)
+    white_bg = Image.new("RGBA", (img_w, img_h), (255, 255, 255, 255))  # Sfondo bianco
+    black_bg = Image.new("RGBA", (img_w, img_h), (0, 0, 0, 255))  # Sfondo bianco
 
-    return darkened
+    white_mask = white_bg.copy()
+    
+    # Incolla il background bianco + la maschera sulla immagine originale
+    white_bg.paste(pil_img, (0, 0), mask)
+    white_mask.paste(black_bg, (0, 0), mask) # creo i pezzi neri con sfondo bianco...credo
+
+    return white_bg, white_mask
 
 def save_jpeg_bytes(base_dir, jpeg_bytes, name="puzzle.jpg"):
     out_path = os.path.join(base_dir, name)
@@ -95,7 +100,21 @@ def save_jpeg_bytes(base_dir, jpeg_bytes, name="puzzle.jpg"):
         with open(out_path, "wb") as f:
             f.write(jpeg_bytes)
 
-def save_final_image_for_cutting(grid_img):
+def get_jpeg_bytes(grid_img, quality=100, subsampling=0, progressive=True, optimize=True, dpi=(320,320)):
+     # crea buffer JPEG in memoria (con DPI)
+    buf = io.BytesIO()
+    grid_img.save(buf, "JPEG",
+                  quality=quality,
+                  subsampling=subsampling,
+                  progressive=progressive,
+                  optimize=optimize,
+                  dpi=dpi)
+    buf.seek(0)
+    return buf.getvalue()
+
+def save_final_images_for_cutting(grid_img, grid_img_mask):
+
+    padding_a4 = int(entry_padding.get())
 
     # determina cartella di uscita robusta per eseguibile e per script
     if getattr(sys, "frozen", False):
@@ -111,23 +130,19 @@ def save_final_image_for_cutting(grid_img):
     optimize = True
     dpi = (320, 320)
 
-    # crea buffer JPEG in memoria (con DPI)
-    buf = io.BytesIO()
-    grid_img.save(buf, "JPEG",
-                  quality=quality,
-                  subsampling=subsampling,
-                  progressive=progressive,
-                  optimize=optimize,
-                  dpi=dpi)
-    buf.seek(0)
-    jpeg_bytes = buf.getvalue()
+    jpeg_bytes = get_jpeg_bytes(grid_img, quality, subsampling, progressive, optimize, dpi)
+    jpeg_bytes_mask = get_jpeg_bytes(grid_img_mask, quality, subsampling, progressive, optimize, dpi)
 
     save_jpeg_bytes(base_dir, jpeg_bytes, "puzzle_full.jpg")
+
     img_320ppi = Image.open(io.BytesIO(jpeg_bytes)) 
+    img_320ppi_mask = Image.open(io.BytesIO(jpeg_bytes_mask)) 
 
     # sapendo quanto è grosso un pezzo di puzzle, suddividi l'immagine in fogli A4
     img_w, img_h = img_320ppi.size
-    a4_w, a4_h = 2480, 3508  # dimensioni A4 a 320 PPI    
+
+    a4_w = A4_TOTAL_W - 2* padding_a4 
+    a4_h = A4_TOTAL_H - 2* padding_a4   # dimensioni A4 a 320 PPI    
 
     rows = int(entry_rows.get())
     cols = int(entry_cols.get())
@@ -146,6 +161,8 @@ def save_final_image_for_cutting(grid_img):
     for foglio_x in range(num_fogli_A4_x):
        for foglio_y in range(num_fogli_A4_y):
             page_img = Image.new("RGB", (a4_w, a4_h), (255, 255, 255))
+            page_img_mask = Image.new("RGB", (a4_w, a4_h), (255, 255, 255))
+
             for py in range(max_y_caselle_per_pagina):
                 for px in range(max_x_caselle_per_pagina):
                     src_x = (foglio_x * max_x_caselle_per_pagina * dim_x_casella) +  px * dim_x_casella
@@ -156,10 +173,14 @@ def save_final_image_for_cutting(grid_img):
                         continue
 
                     box = (src_x, src_y, src_x + dim_x_casella, src_y + dim_y_casella)
+                    
                     tile = img_320ppi.crop(box)
-                    dest_x = px * dim_x_casella
-                    dest_y = py * dim_y_casella
+                    tile_mask = img_320ppi_mask.crop(box)
+
+                    dest_x = padding_a4 + px * dim_x_casella
+                    dest_y = padding_a4 + py * dim_y_casella
                     page_img.paste(tile, (dest_x, dest_y))
+                    page_img_mask.paste(tile_mask, (dest_x, dest_y))
 
             page_path = os.path.join(base_dir, f"puzzle_page_{foglio_x}-{foglio_y}.jpg")
             page_img.save(page_path, "JPEG",
@@ -168,8 +189,61 @@ def save_final_image_for_cutting(grid_img):
                         progressive=progressive,
                         optimize=optimize,
                         dpi=dpi)
-
+            
+            page_path = os.path.join(base_dir, f"mask_page_{foglio_x}-{foglio_y}.jpg")
+            page_img_mask.save(page_path, "JPEG",
+                        quality=quality,
+                        subsampling=subsampling,
+                        progressive=progressive,
+                        optimize=optimize,
+                        dpi=dpi)
+            
     messagebox.showinfo("Saved", f"Images saved")   
+
+def get_tile_with_borders(base_w, base_h, r, c, extra_w, extra_h, cell_w, cell_h, original_overlay, masked):
+        
+    left = extra_w + int(c * cell_w)
+    top = extra_h + int(r * cell_h)
+    right = extra_w + int((c + 1) * cell_w)
+    bottom = extra_h + int((r + 1) * cell_h)
+    # disegna rettangolo interno
+    # draw.rectangle([left, top, right, bottom], outline=inline)
+    
+    left_ext = left - extra_w
+    top_ext = top - extra_h
+    right_ext = right + extra_w
+    bottom_ext = bottom + extra_h
+    # disegna rettangolo esterno
+    # draw.rectangle([left_ext, top_ext, right_ext, bottom_ext], outline=outline)          
+
+    # dimensione desiderata per la cella BLU
+    w = right_ext - left_ext
+    h = bottom_ext - top_ext
+
+    overlay = original_overlay.copy()
+    overlay.paste(masked, (extra_w, extra_h))
+    
+    base = overlay.convert("RGBA")
+    
+    # calcola area effettivamente presente nell'immagine
+
+    crop_l = max(0, left_ext)
+    crop_t = max(0, top_ext)
+    crop_r = min(base_w, right_ext)
+    crop_b = min(base_h, bottom_ext)
+
+    # ritaglio della porzione disponibile
+    cropped = base.crop((crop_l, crop_t, crop_r, crop_b))
+
+    # crea sempre una tile delle dimensioni richieste con sfondo bianco
+    tile = Image.new("RGBA", (w, h), (255, 255, 255, 255))
+        # usa il canale alpha come mask se presente
+    if cropped.mode == "RGBA":
+        tile.paste(cropped, (0, 0), cropped)
+    else:
+        tile.paste(cropped, (0, 0))
+
+    return tile
 
 def create_overlay_and_composite(pil_img, rows, cols, border_pct):
     # pil_img: PIL Image in modalità RGB o RGBA
@@ -218,56 +292,23 @@ def create_overlay_and_composite(pil_img, rows, cols, border_pct):
 
     # raccolte per costruire l'immagine finale
     tiles_grid = [[None for _ in range(cols)] for _ in range(rows)]
+    tiles_grid_for_mask = [[None for _ in range(cols)] for _ in range(rows)]
+
     col_widths = [0] * cols
     row_heights = [0] * rows
 
     for r in range(rows):
         for c in range(cols):
-            left = extra_w + int(c * cell_w)
-            top = extra_h + int(r * cell_h)
-            right = extra_w + int((c + 1) * cell_w)
-            bottom = extra_h + int((r + 1) * cell_h)
-            # disegna rettangolo interno
-            # draw.rectangle([left, top, right, bottom], outline=inline)
-            
-            left_ext = left - extra_w
-            top_ext = top - extra_h
-            right_ext = right + extra_w
-            bottom_ext = bottom + extra_h
-            # disegna rettangolo esterno
-            # draw.rectangle([left_ext, top_ext, right_ext, bottom_ext], outline=outline)          
 
-            # dimensione desiderata per la cella BLU
-            w = right_ext - left_ext
-            h = bottom_ext - top_ext
+            src_masked, piece_contour = mask_other_cells(src, rows, cols, r, c, paths_h, paths_v)
 
-            src_masked = mask_other_cells(src, rows, cols, r, c, paths_h, paths_v)
-
-            overlay = original_overlay.copy()
-
-            overlay.paste(src_masked, (extra_w, extra_h))
-            base = overlay.convert("RGBA")
-            
-            # calcola area effettivamente presente nell'immagine
-
-            crop_l = max(0, left_ext)
-            crop_t = max(0, top_ext)
-            crop_r = min(base_w, right_ext)
-            crop_b = min(base_h, bottom_ext)
-
-            # ritaglio della porzione disponibile
-            cropped = base.crop((crop_l, crop_t, crop_r, crop_b))
-
-            # crea sempre una tile delle dimensioni richieste con sfondo bianco
-            tile = Image.new("RGBA", (w, h), (255, 255, 255, 255))
-             # usa il canale alpha come mask se presente
-            if cropped.mode == "RGBA":
-                tile.paste(cropped, (0, 0), cropped)
-            else:
-                tile.paste(cropped, (0, 0))
+            tile = get_tile_with_borders(base_w, base_h, r, c, extra_w, extra_h, cell_w, cell_h, original_overlay, src_masked)
+            mask_tile = get_tile_with_borders(base_w, base_h, r, c, extra_w, extra_h, cell_w, cell_h, original_overlay, piece_contour)
 
             # salva tile nella griglia e aggiorna dimensioni colonne/righe
             tiles_grid[r][c] = tile
+            tiles_grid_for_mask[r][c] = mask_tile
+
             col_widths[c] = max(col_widths[c], tile.width)
             row_heights[r] = max(row_heights[r], tile.height)
            
@@ -281,24 +322,34 @@ def create_overlay_and_composite(pil_img, rows, cols, border_pct):
     total_w = sum(col_widths)
     total_h = sum(row_heights)
     grid_img = Image.new("RGB", (total_w, total_h), (255,255,255))
+    grid_img_mask = Image.new("RGB", (total_w, total_h), (255,255,255))
 
     y_off = 0
     for r in range(rows):
         x_off = 0
         for c in range(cols):
             tile = tiles_grid[r][c]
+            tile_mask = tiles_grid_for_mask[r][c]
+           
             # converti tile RGBA in RGB su sfondo bianco
             tile_rgb = Image.new("RGB", tile.size, (255,255,255))
+            tile_mask_rgb = Image.new("RGB", tile_mask.size, (255,255,255))
+
             if tile.mode == "RGBA":
                 tile_rgb.paste(tile, mask=tile.split()[3])
+                tile_mask_rgb.paste(tile_mask, mask=tile_mask.split()[3])
             else:
                 tile_rgb.paste(tile)
+                tile_mask_rgb.paste(tile_mask)
+
             grid_img.paste(tile_rgb, (x_off, y_off))
+            grid_img_mask.paste(tile_mask_rgb, (x_off, y_off))
+
             x_off += col_widths[c]
         y_off += row_heights[r]
 
     # salva l'immagine finale
-    save_final_image_for_cutting(grid_img)
+    save_final_images_for_cutting(grid_img, grid_img_mask)
 
     return original_with_borders
 
@@ -406,13 +457,18 @@ entry_border = tk.Entry(ctrl_frame, width=6)
 entry_border.insert(0, "20")
 entry_border.grid(row=0, column=6, padx=(4,8))
 
+tk.Label(ctrl_frame, text="Padding (px):").grid(row=0, column=7, sticky='e')
+entry_padding = tk.Entry(ctrl_frame, width=6)
+entry_padding.insert(0, "150")
+entry_padding.grid(row=0, column=8, padx=(4,8))
+
 # bottone per aggiornare la sovrapposizione senza riaprire immagine
 def update_grid():
     if hasattr(canvas, 'image') or current_pil_img_full is not None:
         display_image_with_overlay()
 
 update_btn = tk.Button(ctrl_frame, text="Update", command=update_grid)
-update_btn.grid(row=0, column=7, padx=(8,0))
+update_btn.grid(row=0, column=9, padx=(8,0))
 
 # Canvas per mostrare l'immagine e l'overlay
 canvas = tk.Canvas(root, bg='gray')
