@@ -1,16 +1,29 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox
-from PIL import Image, ImageTk, ImageDraw
+from PIL import Image, ImageTk, ImageDraw, ImageOps
 from pathcreator import init_params, gen_dh, gen_dv, gen_db
 import os
 import sys
 import io
 
+# impostazioni e costanti
+A4_TOTAL_W, A4_TOTAL_H = 2646, 3742  # dimensioni A4 a 320 PPI
+PREVIEW_WINDOW = False  # se True apre una finestra separata per le celle
+GENERATE_MASK_IMAGES = False  # se True genera anche le immagini maschera
+
+# variabili globali
 current_pil_img_full = None      # immagine PIL in dimensione originale, usata per l'elaborazione
 current_pil_img_display = None   # immagine PIL ridotta, usata solo per la visualizzazione
 images_refs = []  # per evitare garbage collection delle PhotoImage
-PREVIEW_WINDOW = False  # se True apre una finestra separata per le celle
-A4_TOTAL_W, A4_TOTAL_H = 2646, 3742  # dimensioni A4 a 320 PPI
+
+def export_multiple_contours_to_svg(contours, svg_path, canvas_size=(500, 500), stroke="black", fill="none", stroke_width=1):
+    with open(svg_path, "w", encoding="utf-8") as f:
+        w, h = canvas_size
+        f.write(f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}">\n')
+        for i, contour in enumerate(contours):
+            points_str = " ".join(f"{x},{y}" for x, y in contour)
+            f.write(f'  <polygon points="{points_str}" stroke="{stroke}" fill="{fill}" stroke-width="{stroke_width}" />\n')
+        f.write('</svg>\n')
 
 def mask_other_cells(pil_img, tot_rows, tot_cols, row, col, paths_h, paths_v):
     
@@ -75,13 +88,16 @@ def mask_other_cells(pil_img, tot_rows, tot_cols, row, col, paths_h, paths_v):
     white_bg = Image.new("RGBA", (img_w, img_h), (255, 255, 255, 255))  # Sfondo bianco
     black_bg = Image.new("RGBA", (img_w, img_h), (0, 0, 0, 255))  # Sfondo bianco
 
-    white_mask = white_bg.copy()
     
     # Incolla il background bianco + la maschera sulla immagine originale
     white_bg.paste(pil_img, (0, 0), mask)
-    white_mask.paste(black_bg, (0, 0), mask) # creo i pezzi neri con sfondo bianco...credo
+    white_mask = None
+    if GENERATE_MASK_IMAGES:
+        white_mask = white_bg.copy()
+        white_mask.paste(black_bg, (0, 0), mask) # creo i pezzi neri con sfondo bianco...credo
 
-    return white_bg, white_mask
+    # prima di tornare indietro il contour, lo shifto a 0.0
+    return white_bg, white_mask, contour
 
 def save_jpeg_bytes(base_dir, jpeg_bytes, name="puzzle.jpg"):
     out_path = os.path.join(base_dir, name)
@@ -112,7 +128,7 @@ def get_jpeg_bytes(grid_img, quality=100, subsampling=0, progressive=True, optim
     buf.seek(0)
     return buf.getvalue()
 
-def save_final_images_for_cutting(grid_img, grid_img_mask):
+def save_final_images_for_cutting(grid_img, grid_img_mask, contours):
 
     padding_a4 = int(entry_padding.get())
 
@@ -131,12 +147,12 @@ def save_final_images_for_cutting(grid_img, grid_img_mask):
     dpi = (320, 320)
 
     jpeg_bytes = get_jpeg_bytes(grid_img, quality, subsampling, progressive, optimize, dpi)
-    jpeg_bytes_mask = get_jpeg_bytes(grid_img_mask, quality, subsampling, progressive, optimize, dpi)
-
+    img_320ppi = Image.open(io.BytesIO(jpeg_bytes)) 
     save_jpeg_bytes(base_dir, jpeg_bytes, "puzzle_full.jpg")
 
-    img_320ppi = Image.open(io.BytesIO(jpeg_bytes)) 
-    img_320ppi_mask = Image.open(io.BytesIO(jpeg_bytes_mask)) 
+    if GENERATE_MASK_IMAGES:
+        jpeg_bytes_mask = get_jpeg_bytes(grid_img_mask, quality, subsampling, progressive, optimize, dpi)
+        img_320ppi_mask = Image.open(io.BytesIO(jpeg_bytes_mask)) 
 
     # sapendo quanto è grosso un pezzo di puzzle, suddividi l'immagine in fogli A4
     img_w, img_h = img_320ppi.size
@@ -161,27 +177,43 @@ def save_final_images_for_cutting(grid_img, grid_img_mask):
     for foglio_x in range(num_fogli_A4_x):
        for foglio_y in range(num_fogli_A4_y):
             page_img = Image.new("RGB", (a4_w, a4_h), (255, 255, 255))
-            page_img_mask = Image.new("RGB", (a4_w, a4_h), (255, 255, 255))
-
+            
+            if GENERATE_MASK_IMAGES:
+                page_img_mask = Image.new("RGB", (a4_w, a4_h), (255, 255, 255))
+            
+            contours_in_page = []
             for py in range(max_y_caselle_per_pagina):
                 for px in range(max_x_caselle_per_pagina):
                     src_x = (foglio_x * max_x_caselle_per_pagina * dim_x_casella) +  px * dim_x_casella
                     src_y = (foglio_y * max_y_caselle_per_pagina * dim_y_casella) +  py * dim_y_casella
 
-                    # se esco dai limiti dell'immagine originale, esco
                     if src_x + dim_x_casella > img_w or src_y + dim_y_casella > img_h:
                         continue
 
                     box = (src_x, src_y, src_x + dim_x_casella, src_y + dim_y_casella)
-                    
-                    tile = img_320ppi.crop(box)
-                    tile_mask = img_320ppi_mask.crop(box)
 
                     dest_x = padding_a4 + px * dim_x_casella
                     dest_y = padding_a4 + py * dim_y_casella
-                    page_img.paste(tile, (dest_x, dest_y))
-                    page_img_mask.paste(tile_mask, (dest_x, dest_y))
 
+                    contour = contours[max_y_caselle_per_pagina * foglio_y + py][max_x_caselle_per_pagina * foglio_x + px]
+                    contour = shift_contour(contour, dx= dest_x, dy= dest_y)
+                    contours_in_page.append(contour)
+
+                    # se esco dai limiti dell'immagine originale, esco
+                    tile = img_320ppi.crop(box)
+                    page_img.paste(tile, (dest_x, dest_y))
+
+                    if GENERATE_MASK_IMAGES:
+                        tile_mask = img_320ppi_mask.crop(box)
+                        page_img_mask.paste(tile_mask, (dest_x, dest_y))
+
+            export_multiple_contours_to_svg(contours_in_page,
+                                        os.path.join(base_dir, f"puzzle_contours_{foglio_x}-{foglio_y}.svg"),
+                                        canvas_size=(a4_w, a4_h),
+                                        stroke="red",
+                                        fill="rgba(255,0,0,0.2)",  # SVG non supporta rgba direttamente, ma puoi usare `fill-opacity`
+                                        stroke_width=1)
+            
             page_path = os.path.join(base_dir, f"puzzle_page_{foglio_x}-{foglio_y}.jpg")
             page_img.save(page_path, "JPEG",
                         quality=quality,
@@ -190,14 +222,15 @@ def save_final_images_for_cutting(grid_img, grid_img_mask):
                         optimize=optimize,
                         dpi=dpi)
             
-            page_path = os.path.join(base_dir, f"mask_page_{foglio_x}-{foglio_y}.jpg")
-            page_img_mask.save(page_path, "JPEG",
-                        quality=quality,
-                        subsampling=subsampling,
-                        progressive=progressive,
-                        optimize=optimize,
-                        dpi=dpi)
-            
+            if GENERATE_MASK_IMAGES:
+                page_path = os.path.join(base_dir, f"mask_page_{foglio_x}-{foglio_y}.jpg")
+                page_img_mask.save(page_path, "JPEG",
+                            quality=quality,
+                            subsampling=subsampling,
+                            progressive=progressive,
+                            optimize=optimize,
+                            dpi=dpi)
+  
     messagebox.showinfo("Saved", f"Images saved")   
 
 def get_tile_with_borders(base_w, base_h, r, c, extra_w, extra_h, cell_w, cell_h, original_overlay, masked):
@@ -245,23 +278,30 @@ def get_tile_with_borders(base_w, base_h, r, c, extra_w, extra_h, cell_w, cell_h
 
     return tile
 
-def create_overlay_and_composite(pil_img, rows, cols, border_pct):
+def shift_contour(contour, dx=0, dy=0):
+    return [(x + dx, y + dy) for x, y in contour]
+
+def convert_and_paste_tile(tile_mask, x_off, y_off, grid_img):
+    tile_mask_rgb = Image.new("RGB", tile_mask.size, (255,255,255))
+    if tile_mask_rgb.mode == "RGBA":
+        tile_mask_rgb.paste(tile_mask, mask=tile_mask.split()[3])
+    else:
+        tile_mask_rgb.paste(tile_mask)  
+
+    grid_img.paste(tile_mask_rgb, (x_off, y_off))
+
+def create_overlay_and_composite(pil_img, rows, cols, tab_pct, border_pct):
     # pil_img: PIL Image in modalità RGB o RGBA
-    try:
-        rows = max(1, int(rows))
-        cols = max(1, int(cols))
-        border_pct = max(0.0, float(border_pct))
-    except Exception:
-        return pil_img
 
     img_w, img_h = pil_img.size
     cell_w = img_w / cols
     cell_h = img_h / rows
     extra_w = int(cell_w * (border_pct / 100.0))
     extra_h = int(cell_h * (border_pct / 100.0))
+    tabsize = tab_pct * border_pct / 100.0 
 
     # Inizializza i parametri per pathcreator
-    init_params(cols, rows, img_w, img_h, tabsize=0.7*border_pct, jitter=border_pct/10.0)
+    init_params(cols, rows, img_w, img_h, tabsize=tabsize, jitter=border_pct/10.0)
 
     # Applica i percorsi del puzzle
     pil_img, paths_h, paths_v = add_jigsaw_path(pil_img)
@@ -273,8 +313,6 @@ def create_overlay_and_composite(pil_img, rows, cols, border_pct):
     
     overlay = original_overlay.copy()
  
-    draw = ImageDraw.Draw(overlay)
-
     overlay.paste(src, (extra_w, extra_h))
     original_with_borders = overlay.convert("RGBA")
     
@@ -293,6 +331,7 @@ def create_overlay_and_composite(pil_img, rows, cols, border_pct):
     # raccolte per costruire l'immagine finale
     tiles_grid = [[None for _ in range(cols)] for _ in range(rows)]
     tiles_grid_for_mask = [[None for _ in range(cols)] for _ in range(rows)]
+    contours = [[None for _ in range(cols)] for _ in range(rows)] # per salvare i contorni di tutte le celle in previsione di salvare l'svg
 
     col_widths = [0] * cols
     row_heights = [0] * rows
@@ -300,14 +339,16 @@ def create_overlay_and_composite(pil_img, rows, cols, border_pct):
     for r in range(rows):
         for c in range(cols):
 
-            src_masked, piece_contour = mask_other_cells(src, rows, cols, r, c, paths_h, paths_v)
+            src_masked, piece_with_contour, contour = mask_other_cells(src, rows, cols, r, c, paths_h, paths_v)
+            
+            contours[r][c] = shift_contour(contour, dx= extra_w + -c*cell_w, dy= extra_h + -r*cell_h)
 
             tile = get_tile_with_borders(base_w, base_h, r, c, extra_w, extra_h, cell_w, cell_h, original_overlay, src_masked)
-            mask_tile = get_tile_with_borders(base_w, base_h, r, c, extra_w, extra_h, cell_w, cell_h, original_overlay, piece_contour)
-
-            # salva tile nella griglia e aggiorna dimensioni colonne/righe
             tiles_grid[r][c] = tile
-            tiles_grid_for_mask[r][c] = mask_tile
+            
+            if GENERATE_MASK_IMAGES:
+                mask_tile = get_tile_with_borders(base_w, base_h, r, c, extra_w, extra_h, cell_w, cell_h, original_overlay, piece_with_contour)
+                tiles_grid_for_mask[r][c] = mask_tile
 
             col_widths[c] = max(col_widths[c], tile.width)
             row_heights[r] = max(row_heights[r], tile.height)
@@ -322,34 +363,26 @@ def create_overlay_and_composite(pil_img, rows, cols, border_pct):
     total_w = sum(col_widths)
     total_h = sum(row_heights)
     grid_img = Image.new("RGB", (total_w, total_h), (255,255,255))
-    grid_img_mask = Image.new("RGB", (total_w, total_h), (255,255,255))
+
+    grid_img_mask = None
+    if GENERATE_MASK_IMAGES:
+        grid_img_mask = Image.new("RGB", (total_w, total_h), (255,255,255))
 
     y_off = 0
     for r in range(rows):
         x_off = 0
         for c in range(cols):
-            tile = tiles_grid[r][c]
-            tile_mask = tiles_grid_for_mask[r][c]
-           
-            # converti tile RGBA in RGB su sfondo bianco
-            tile_rgb = Image.new("RGB", tile.size, (255,255,255))
-            tile_mask_rgb = Image.new("RGB", tile_mask.size, (255,255,255))
 
-            if tile.mode == "RGBA":
-                tile_rgb.paste(tile, mask=tile.split()[3])
-                tile_mask_rgb.paste(tile_mask, mask=tile_mask.split()[3])
-            else:
-                tile_rgb.paste(tile)
-                tile_mask_rgb.paste(tile_mask)
+            convert_and_paste_tile(tiles_grid[r][c], x_off, y_off, grid_img)
 
-            grid_img.paste(tile_rgb, (x_off, y_off))
-            grid_img_mask.paste(tile_mask_rgb, (x_off, y_off))
+            if GENERATE_MASK_IMAGES:
+                convert_and_paste_tile(tiles_grid_for_mask[r][c], x_off, y_off, grid_img_mask)
 
             x_off += col_widths[c]
         y_off += row_heights[r]
 
     # salva l'immagine finale
-    save_final_images_for_cutting(grid_img, grid_img_mask)
+    save_final_images_for_cutting(grid_img, grid_img_mask, contours)
 
     return original_with_borders
 
@@ -388,11 +421,13 @@ def display_image_with_overlay():
     global current_pil_img_full
     if current_pil_img_full is None:
         return
-    rows = entry_rows.get()
-    cols = entry_cols.get()
-    border_pct = entry_border.get()
-
-    composite_full = create_overlay_and_composite(current_pil_img_full, rows, cols, border_pct)
+  
+    rows = max(1, int(entry_rows.get()))
+    cols = max(1, int(entry_cols.get()))
+    border_pct = max(0.0, float(entry_border.get()))
+    tab = max(10.0, float(entry_tab.get()))
+    
+    composite_full = create_overlay_and_composite(current_pil_img_full, rows, cols, tab, border_pct)
     
       # scala il composito per la visualizzazione (non modifica l'immagine full)
     max_w, max_h = 800, 600  # dimensione massima visibile (regolabile)
@@ -408,9 +443,13 @@ def display_image_with_overlay():
 
 def open_and_show_image():
     global current_pil_img_full, current_pil_img_display
+
+    # su mac non esiste il filtro per tipi di file, quindi lo escludo altrimenti tkinter crasha
+    filetypes = "" if sys.platform == "darwin" else [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.gif"), ("All files", "*.*")]
+
     path = filedialog.askopenfilename(
         title="Choose an image file",
-        filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.gif"), ("All files", "*.*")]
+        filetypes=filetypes
     )
     if not path:
         return
@@ -419,6 +458,8 @@ def open_and_show_image():
     except Exception as e:
         messagebox.showerror("Error", f"Impossible to open:\n{e}")
         return
+
+    img = ImageOps.exif_transpose(img)  # Corregge l'orientamento secondo EXIF
 
    # conserva la versione full (converti in RGBA per operazioni con alpha se serve)
     current_pil_img_full = img.convert("RGBA")
@@ -457,10 +498,15 @@ entry_border = tk.Entry(ctrl_frame, width=6)
 entry_border.insert(0, "20")
 entry_border.grid(row=0, column=6, padx=(4,8))
 
-tk.Label(ctrl_frame, text="Padding (px):").grid(row=0, column=7, sticky='e')
+tk.Label(ctrl_frame, text="Tab (%):").grid(row=0, column=7, sticky='e')
+entry_tab = tk.Entry(ctrl_frame, width=6)
+entry_tab.insert(0, "70")
+entry_tab.grid(row=0, column=8, padx=(4,8))
+
+tk.Label(ctrl_frame, text="Padding (px):").grid(row=0, column=9, sticky='e')
 entry_padding = tk.Entry(ctrl_frame, width=6)
 entry_padding.insert(0, "150")
-entry_padding.grid(row=0, column=8, padx=(4,8))
+entry_padding.grid(row=0, column=10, padx=(4,8))
 
 # bottone per aggiornare la sovrapposizione senza riaprire immagine
 def update_grid():
@@ -468,7 +514,7 @@ def update_grid():
         display_image_with_overlay()
 
 update_btn = tk.Button(ctrl_frame, text="Update", command=update_grid)
-update_btn.grid(row=0, column=9, padx=(8,0))
+update_btn.grid(row=0, column=12, padx=(8,0))
 
 # Canvas per mostrare l'immagine e l'overlay
 canvas = tk.Canvas(root, bg='gray')
