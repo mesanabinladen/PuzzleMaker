@@ -10,7 +10,6 @@ import io
 A4_TOTAL_W, A4_TOTAL_H = 2646, 3742  # dimensioni A4 a 320 PPI
 PREVIEW_WINDOW = False  # se True apre una finestra separata per le celle
 GENERATE_MASK_IMAGES = False  # se True genera anche le immagini maschera
-IMAGE_WITH_MASK = False  # se True non genera immagini maschera
 
 # variabili globali
 current_pil_img_full = None      # immagine PIL in dimensione originale, usata per l'elaborazione
@@ -90,7 +89,7 @@ def mask_other_cells(pil_img, tot_rows, tot_cols, row, col, paths_h, paths_v):
     black_bg = Image.new("RGBA", (img_w, img_h), (0, 0, 0, 255))  # Sfondo bianco
 
     # Incolla il background bianco + la maschera sulla immagine originale
-    if IMAGE_WITH_MASK:
+    if var_onoff.get():
         white_bg.paste(pil_img, (0, 0), mask)  # creo i pezzi bianchi con sfondo bianco
     else:   
         white_bg.paste(pil_img, (0, 0))
@@ -480,37 +479,44 @@ root = tk.Tk()
 root.title("Image Preview with Jigsaw Overlay")
 root.resizable(False, False)
 
-# Controlli: pulsante + campi N (righe), M (colonne) e bordo (%)
+# Frame principale dei controlli
 ctrl_frame = tk.Frame(root)
 ctrl_frame.pack(padx=10, pady=10, anchor='w')
 
+# --- Riga 1: Pulsante e controlli principali ---
 btn = tk.Button(ctrl_frame, text="Open Image...", command=open_and_show_image)
-btn.grid(row=0, column=0, padx=(0,8))
+btn.grid(row=0, column=0, padx=(0, 8), pady=4)
 
 tk.Label(ctrl_frame, text="Rows:").grid(row=0, column=1, sticky='e')
 entry_rows = tk.Entry(ctrl_frame, width=5)
 entry_rows.insert(0, "3")
-entry_rows.grid(row=0, column=2, padx=(4,12))
+entry_rows.grid(row=0, column=2, padx=(4, 12))
 
 tk.Label(ctrl_frame, text="Columns:").grid(row=0, column=3, sticky='e')
 entry_cols = tk.Entry(ctrl_frame, width=5)
 entry_cols.insert(0, "3")
-entry_cols.grid(row=0, column=4, padx=(4,8))
+entry_cols.grid(row=0, column=4, padx=(4, 12))
 
 tk.Label(ctrl_frame, text="Border (%):").grid(row=0, column=5, sticky='e')
 entry_border = tk.Entry(ctrl_frame, width=6)
 entry_border.insert(0, "20")
-entry_border.grid(row=0, column=6, padx=(4,8))
+entry_border.grid(row=0, column=6, padx=(4, 12))
 
-tk.Label(ctrl_frame, text="Tab (%):").grid(row=0, column=7, sticky='e')
+# --- Riga 2: Altri parametri + Checkbox ---
+tk.Label(ctrl_frame, text="Tab (%):").grid(row=1, column=1, sticky='e')
 entry_tab = tk.Entry(ctrl_frame, width=6)
 entry_tab.insert(0, "70")
-entry_tab.grid(row=0, column=8, padx=(4,8))
+entry_tab.grid(row=1, column=2, padx=(4, 12))
 
-tk.Label(ctrl_frame, text="Padding (px):").grid(row=0, column=9, sticky='e')
+tk.Label(ctrl_frame, text="Padding (px):").grid(row=1, column=3, sticky='e')
 entry_padding = tk.Entry(ctrl_frame, width=6)
 entry_padding.insert(0, "150")
-entry_padding.grid(row=0, column=10, padx=(4,8))
+entry_padding.grid(row=1, column=4, padx=(4, 12))
+
+# Checkbox ON/OFF
+var_onoff = tk.BooleanVar(value=True)
+chk_onoff = tk.Checkbutton(ctrl_frame, text="Jpeg Mask", variable=var_onoff)
+chk_onoff.grid(row=1, column=5, columnspan=2, padx=(12, 0), sticky='w')
 
 # bottone per aggiornare la sovrapposizione senza riaprire immagine
 def update_grid():

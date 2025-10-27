@@ -4,7 +4,7 @@ Small Tkinter + Pillow utility to:
 - open an image (processing is done on the full-resolution copy; GUI shows a scaled preview),
 - overlay an NxM grid,
 - expand each cell by a percentage "border" that overlaps neighbours,
-- extract each expanded cell as a tile and compose a single output `puzzle.jpg`, plus an A4 `puzzle_page_x-y.jpg` (both A4 320ppi) to print every puzzle part, and `puzzle_contours_x-y.svg` with SVG contours for usinga with the laser engraver
+- extract each expanded cell as a tile and compose a single output `puzzle_full.jpg`, plus an A4 `puzzle_page_x-y.jpg` (both A4 320ppi) to print every puzzle part, and `puzzle_contours_x-y.svg` with SVG contours for using with the laser engraver
 
 Requirements
 - Tested with Python 3.11
@@ -35,7 +35,6 @@ Usage
    - Tab (%) — percent dimension for the tabs referred to the border size (max 100%!)
    - Padding (pixel): number of pixel for padding around the A4 images
 
-
 3. Click "Update" to redraw the overlay preview.
 4. The app saves all the files (see details below).
 
@@ -51,6 +50,7 @@ Packaging with PyInstaller (Windows)
 - Recommended command (run from project folder where `puzzle_icon.ico` is located): read the `Pyinstaller instruction.TXT`
 
 Notes
+- The final puzzle will mantain the original image's dimensions
 - Large full-resolution images may require significant memory/time to process.
 - The code already detects PyInstaller "frozen" mode to choose a save directory; modify that logic if you prefer a different fallback.
 - If you want the app to prompt for an output path instead of automatic saving, add a Save As dialog in `main.py`.
