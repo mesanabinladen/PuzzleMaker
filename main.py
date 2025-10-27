@@ -10,6 +10,7 @@ import io
 A4_TOTAL_W, A4_TOTAL_H = 2646, 3742  # dimensioni A4 a 320 PPI
 PREVIEW_WINDOW = False  # se True apre una finestra separata per le celle
 GENERATE_MASK_IMAGES = False  # se True genera anche le immagini maschera
+IMAGE_WITH_MASK = False  # se True non genera immagini maschera
 
 # variabili globali
 current_pil_img_full = None      # immagine PIL in dimensione originale, usata per l'elaborazione
@@ -88,9 +89,12 @@ def mask_other_cells(pil_img, tot_rows, tot_cols, row, col, paths_h, paths_v):
     white_bg = Image.new("RGBA", (img_w, img_h), (255, 255, 255, 255))  # Sfondo bianco
     black_bg = Image.new("RGBA", (img_w, img_h), (0, 0, 0, 255))  # Sfondo bianco
 
-    
     # Incolla il background bianco + la maschera sulla immagine originale
-    white_bg.paste(pil_img, (0, 0), mask)
+    if IMAGE_WITH_MASK:
+        white_bg.paste(pil_img, (0, 0), mask)  # creo i pezzi bianchi con sfondo bianco
+    else:   
+        white_bg.paste(pil_img, (0, 0))
+
     white_mask = None
     if GENERATE_MASK_IMAGES:
         white_mask = white_bg.copy()
@@ -176,10 +180,10 @@ def save_final_images_for_cutting(grid_img, grid_img_mask, contours):
     # ora per ogni foglio A4 preparo una immagine Pillow con sfondo bianco
     for foglio_x in range(num_fogli_A4_x):
        for foglio_y in range(num_fogli_A4_y):
-            page_img = Image.new("RGB", (a4_w, a4_h), (255, 255, 255))
+            page_img = Image.new("RGB", (A4_TOTAL_W, A4_TOTAL_H), (255, 255, 255))
             
             if GENERATE_MASK_IMAGES:
-                page_img_mask = Image.new("RGB", (a4_w, a4_h), (255, 255, 255))
+                page_img_mask = Image.new("RGB", (A4_TOTAL_W, A4_TOTAL_H), (255, 255, 255))
             
             contours_in_page = []
             for py in range(max_y_caselle_per_pagina):
@@ -209,7 +213,7 @@ def save_final_images_for_cutting(grid_img, grid_img_mask, contours):
 
             export_multiple_contours_to_svg(contours_in_page,
                                         os.path.join(base_dir, f"puzzle_contours_{foglio_x}-{foglio_y}.svg"),
-                                        canvas_size=(a4_w, a4_h),
+                                        canvas_size=(A4_TOTAL_W, A4_TOTAL_H),
                                         stroke="red",
                                         fill="rgba(255,0,0,0.2)",  # SVG non supporta rgba direttamente, ma puoi usare `fill-opacity`
                                         stroke_width=1)
@@ -414,7 +418,7 @@ def add_jigsaw_path(pil_img, draw=False):
 
     # Sovrappone l'overlay all'immagine originale
     composite = pil_img.copy()
-    composite.paste(overlay, (0, 0), overlay.split()[3])  # Usa il canale alpha
+ 
     return composite, paths_h, paths_v
 
 def display_image_with_overlay():
