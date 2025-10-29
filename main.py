@@ -20,6 +20,10 @@ def export_multiple_contours_to_svg(contours, svg_path, canvas_size=(500, 500), 
     with open(svg_path, "w", encoding="utf-8") as f:
         w, h = canvas_size
         f.write(f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}">\n')
+        
+        # aggiungo un poligono SVG che sia esattamente grosso come il canvas
+        f.write(f'  <rect width="{w}" height="{h}" stroke="{stroke}" fill="{fill}" stroke-width="{stroke_width}" />\n')  
+        
         for i, contour in enumerate(contours):
             points_str = " ".join(f"{x},{y}" for x, y in contour)
             f.write(f'  <polygon points="{points_str}" stroke="{stroke}" fill="{fill}" stroke-width="{stroke_width}" />\n')
@@ -214,7 +218,7 @@ def save_final_images_for_cutting(grid_img, grid_img_mask, contours):
                                         os.path.join(base_dir, f"puzzle_contours_{foglio_x}-{foglio_y}.svg"),
                                         canvas_size=(A4_TOTAL_W, A4_TOTAL_H),
                                         stroke="red",
-                                        fill="rgba(255,0,0,0.2)",  # SVG non supporta rgba direttamente, ma puoi usare `fill-opacity`
+                                        #fill="rgba(255,0,0,0.2)",  # SVG non supporta rgba direttamente, ma puoi usare `fill-opacity`
                                         stroke_width=1)
             
             page_path = os.path.join(base_dir, f"puzzle_page_{foglio_x}-{foglio_y}.jpg")
