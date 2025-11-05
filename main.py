@@ -135,16 +135,21 @@ def get_jpeg_bytes(grid_img, quality=100, subsampling=0, progressive=True, optim
     buf.seek(0)
     return buf.getvalue()
 
-def save_final_images_for_cutting(grid_img, grid_img_mask, contours):
-
-    padding_a4 = int(entry_padding.get())
-
+def get_base_dir():
     # determina cartella di uscita robusta per eseguibile e per script
     if getattr(sys, "frozen", False):
         # quando PyInstaller crea l'exe, sys.executable punta all'eseguibile
         base_dir = os.path.dirname(sys.executable)
     else:
         base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    return base_dir
+
+def save_final_images_for_cutting(grid_img, grid_img_mask, extra_w, extra_h, contours):
+
+    padding_a4 = int(entry_padding.get())
+
+    base_dir = get_base_dir()
 
     # JPEG save options: highest quality, no chroma subsampling, progressive, force 320 PPI
     quality = 100
@@ -170,15 +175,15 @@ def save_final_images_for_cutting(grid_img, grid_img_mask, contours):
     rows = int(entry_rows.get())
     cols = int(entry_cols.get())
 
-    dim_x_casella = img_w // cols
-    dim_y_casella = img_h // rows
+    dim_x_casella = (img_w -2 *extra_w) // cols
+    dim_y_casella = (img_h -2 *extra_h) // rows
 
     # il numero di pagine dipende dal massimo valore di caselle che possono stare in una pagina A4
     max_x_caselle_per_pagina = a4_w // dim_x_casella
     max_y_caselle_per_pagina = a4_h // dim_y_casella
 
-    num_fogli_A4_x = 1 + img_w // (max_x_caselle_per_pagina * dim_x_casella)
-    num_fogli_A4_y = 1 + img_h // (max_y_caselle_per_pagina * dim_y_casella)
+    num_fogli_A4_x = 1 + cols // max_x_caselle_per_pagina
+    num_fogli_A4_y = 1 + rows // max_y_caselle_per_pagina
 
     # ora per ogni foglio A4 preparo una immagine Pillow con sfondo bianco
     for foglio_x in range(num_fogli_A4_x):
@@ -325,9 +330,6 @@ def create_overlay_and_composite(pil_img, rows, cols, tab_pct, border_pct):
     
     base_w, base_h = original_with_borders.size
 
-    inline = (255, 0, 0, 255)  # colore bordo con alpha maggiore
-    outline = (0, 0, 255, 255)  # colore bordo con alpha maggiore
-
     if PREVIEW_WINDOW:
         # crea finestra e frame per le immagini
         top = tk.Toplevel(root)
@@ -389,7 +391,7 @@ def create_overlay_and_composite(pil_img, rows, cols, tab_pct, border_pct):
         y_off += row_heights[r]
 
     # salva l'immagine finale
-    save_final_images_for_cutting(grid_img, grid_img_mask, contours)
+    save_final_images_for_cutting(grid_img, grid_img_mask, extra_w, extra_h, contours)
 
     return original_with_borders
 
@@ -425,6 +427,17 @@ def add_jigsaw_path(pil_img, draw=False):
     return composite, paths_h, paths_v
 
 def display_image_with_overlay():
+
+    # per prima cosa pulisco la cartella da eventuali file jpg e svg precedenti
+    
+    base_dir = get_base_dir()
+
+    for nome_file in os.listdir(base_dir):
+        if nome_file.startswith("puzzle_") and (nome_file.endswith(".svg") or nome_file.endswith(".jpg")):
+            percorso_completo = os.path.join(base_dir, nome_file)
+            os.remove(percorso_completo)
+            # print(f"Cancellato: {percorso_completo}")
+
     global current_pil_img_full
     if current_pil_img_full is None:
         return
@@ -518,7 +531,7 @@ entry_padding.insert(0, "150")
 entry_padding.grid(row=1, column=4, padx=(4, 12))
 
 # Checkbox ON/OFF
-var_onoff = tk.BooleanVar(value=True)
+var_onoff = tk.BooleanVar(value=False)
 chk_onoff = tk.Checkbutton(ctrl_frame, text="Jpeg Mask", variable=var_onoff)
 chk_onoff.grid(row=1, column=5, columnspan=2, padx=(12, 0), sticky='w')
 
