@@ -5,6 +5,7 @@ from pathcreator import init_params, gen_dh, gen_dv, gen_db
 import os
 import sys
 import io
+import math
 
 # impostazioni e costanti
 A4_TOTAL_W, A4_TOTAL_H = 2646, 3742  # dimensioni A4 a 320 PPI
@@ -159,7 +160,7 @@ def save_final_images_for_cutting(grid_img, grid_img_mask, extra_w, extra_h, con
     dpi = (320, 320)
 
     jpeg_bytes = get_jpeg_bytes(grid_img, quality, subsampling, progressive, optimize, dpi)
-    img_320ppi = Image.open(io.BytesIO(jpeg_bytes)) 
+    tutti_pezzi_a_320ppi = Image.open(io.BytesIO(jpeg_bytes)) 
     save_jpeg_bytes(base_dir, jpeg_bytes, "puzzle_full.jpg")
 
     if GENERATE_MASK_IMAGES:
@@ -167,23 +168,23 @@ def save_final_images_for_cutting(grid_img, grid_img_mask, extra_w, extra_h, con
         img_320ppi_mask = Image.open(io.BytesIO(jpeg_bytes_mask)) 
 
     # sapendo quanto è grosso un pezzo di puzzle, suddividi l'immagine in fogli A4
-    img_w, img_h = img_320ppi.size
+    tutti_pezzi_w, tutti_pezzi_h = tutti_pezzi_a_320ppi.size
 
-    a4_w = A4_TOTAL_W - 2* padding_a4 
-    a4_h = A4_TOTAL_H - 2* padding_a4   # dimensioni A4 a 320 PPI    
+    canvas_w = A4_TOTAL_W - 2* padding_a4 
+    canvas_h = A4_TOTAL_H - 2* padding_a4   # dimensioni A4 a 320 PPI    
 
     rows = int(entry_rows.get())
     cols = int(entry_cols.get())
 
-    dim_x_casella = (img_w -2 *extra_w) // cols
-    dim_y_casella = (img_h -2 *extra_h) // rows
+    dim_x_casella_con_border = int(tutti_pezzi_w / cols)
+    dim_y_casella_con_border = int(tutti_pezzi_h  / rows)
 
     # il numero di pagine dipende dal massimo valore di caselle che possono stare in una pagina A4
-    max_x_caselle_per_pagina = a4_w // dim_x_casella
-    max_y_caselle_per_pagina = a4_h // dim_y_casella
+    max_x_caselle_per_pagina = canvas_w // dim_x_casella_con_border
+    max_y_caselle_per_pagina = canvas_h // dim_y_casella_con_border
 
-    num_fogli_A4_x = 1 + cols // max_x_caselle_per_pagina
-    num_fogli_A4_y = 1 + rows // max_y_caselle_per_pagina
+    num_fogli_A4_x = math.ceil(cols / max_x_caselle_per_pagina)
+    num_fogli_A4_y = math.ceil(rows / max_y_caselle_per_pagina)
 
     # ora per ogni foglio A4 preparo una immagine Pillow con sfondo bianco
     for foglio_x in range(num_fogli_A4_x):
@@ -196,24 +197,28 @@ def save_final_images_for_cutting(grid_img, grid_img_mask, extra_w, extra_h, con
             contours_in_page = []
             for py in range(max_y_caselle_per_pagina):
                 for px in range(max_x_caselle_per_pagina):
-                    src_x = (foglio_x * max_x_caselle_per_pagina * dim_x_casella) +  px * dim_x_casella
-                    src_y = (foglio_y * max_y_caselle_per_pagina * dim_y_casella) +  py * dim_y_casella
 
-                    if src_x + dim_x_casella > img_w or src_y + dim_y_casella > img_h:
+                    # posizione sorgente dall'immagine originale
+                    src_x = (foglio_x * max_x_caselle_per_pagina * dim_x_casella_con_border) +  px * dim_x_casella_con_border
+                    src_y = (foglio_y * max_y_caselle_per_pagina * dim_y_casella_con_border) +  py * dim_y_casella_con_border
+
+                    if src_x + dim_x_casella_con_border > tutti_pezzi_w or src_y + dim_y_casella_con_border > tutti_pezzi_h:
                         continue
+                    
+                    # box nell'immagine di partenza. Le coordinate negative escono dall'immagine e creano uno sfondo nero!
+                    box = (src_x, src_y, src_x + dim_x_casella_con_border, src_y + dim_y_casella_con_border)
 
-                    box = (src_x, src_y, src_x + dim_x_casella, src_y + dim_y_casella)
+                    # se esco dai limiti dell'immagine originale, il box compensa, spero!
+                    tile = tutti_pezzi_a_320ppi.crop(box)
 
-                    dest_x = padding_a4 + px * dim_x_casella
-                    dest_y = padding_a4 + py * dim_y_casella
+                    dest_x = padding_a4 + px * dim_x_casella_con_border
+                    dest_y = padding_a4 + py * dim_y_casella_con_border
+
+                    page_img.paste(tile, (dest_x, dest_y))
 
                     contour = contours[max_y_caselle_per_pagina * foglio_y + py][max_x_caselle_per_pagina * foglio_x + px]
                     contour = shift_contour(contour, dx= dest_x, dy= dest_y)
                     contours_in_page.append(contour)
-
-                    # se esco dai limiti dell'immagine originale, esco
-                    tile = img_320ppi.crop(box)
-                    page_img.paste(tile, (dest_x, dest_y))
 
                     if GENERATE_MASK_IMAGES:
                         tile_mask = img_320ppi_mask.crop(box)
@@ -506,12 +511,12 @@ btn.grid(row=0, column=0, padx=(0, 8), pady=4)
 
 tk.Label(ctrl_frame, text="Rows:").grid(row=0, column=1, sticky='e')
 entry_rows = tk.Entry(ctrl_frame, width=5)
-entry_rows.insert(0, "3")
+entry_rows.insert(0, "15")
 entry_rows.grid(row=0, column=2, padx=(4, 12))
 
 tk.Label(ctrl_frame, text="Columns:").grid(row=0, column=3, sticky='e')
 entry_cols = tk.Entry(ctrl_frame, width=5)
-entry_cols.insert(0, "3")
+entry_cols.insert(0, "10")
 entry_cols.grid(row=0, column=4, padx=(4, 12))
 
 tk.Label(ctrl_frame, text="Border (%):").grid(row=0, column=5, sticky='e')
