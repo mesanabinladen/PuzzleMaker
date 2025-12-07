@@ -94,7 +94,7 @@ def mask_other_cells(pil_img, tot_rows, tot_cols, row, col, paths_h, paths_v):
     black_bg = Image.new("RGBA", (img_w, img_h), (0, 0, 0, 255))  # Sfondo bianco
 
     # Incolla il background bianco + la maschera sulla immagine originale
-    if var_onoff.get():
+    if spazi_bianchi.get():
         white_bg.paste(pil_img, (0, 0), mask)  # creo i pezzi bianchi con sfondo bianco
     else:   
         white_bg.paste(pil_img, (0, 0))
@@ -209,12 +209,14 @@ def save_final_images_for_cutting(grid_img, grid_img_mask, extra_w, extra_h, con
                     box = (src_x, src_y, src_x + dim_x_casella_con_border, src_y + dim_y_casella_con_border)
 
                     # se esco dai limiti dell'immagine originale, il box compensa, spero!
-                    tile = tutti_pezzi_a_320ppi.crop(box)
+                    tile_tutti_pezzi = tutti_pezzi_a_320ppi.crop(box)
 
                     dest_x = padding_a4 + px * dim_x_casella_con_border
                     dest_y = padding_a4 + py * dim_y_casella_con_border
 
-                    page_img.paste(tile, (dest_x, dest_y))
+                    if dest_x < 0 or dest_y <0:
+                        continue
+                    page_img.paste(tile_tutti_pezzi, (dest_x, dest_y))
 
                     contour = contours[max_y_caselle_per_pagina * foglio_y + py][max_x_caselle_per_pagina * foglio_x + px]
                     contour = shift_contour(contour, dx= dest_x, dy= dest_y)
@@ -311,6 +313,17 @@ def create_overlay_and_composite(pil_img, rows, cols, tab_pct, border_pct):
     # pil_img: PIL Image in modalità RGB o RGBA
 
     img_w, img_h = pil_img.size
+
+    # verifico che l'immagine abbia un numero di pixel multiplo del numero di righe e colonne
+    mod_w = img_w % cols
+    mod_h = img_h % rows
+
+    if mod_w != 0 or mod_h != 0:
+        new_w = img_w - mod_w
+        new_h = img_h - mod_h
+        pil_img = pil_img.crop((0, 0, new_w, new_h)) # ridimensiona l'immagine
+        img_w, img_h = pil_img.size
+
     cell_w = img_w / cols
     cell_h = img_h / rows
     extra_w = int(cell_w * (border_pct / 100.0))
@@ -438,7 +451,7 @@ def display_image_with_overlay():
     base_dir = get_base_dir()
 
     for nome_file in os.listdir(base_dir):
-        if nome_file.startswith("puzzle_") and (nome_file.endswith(".svg") or nome_file.endswith(".jpg")):
+        if (nome_file.startswith("puzzle_") or nome_file.startswith("mask_")) and (nome_file.endswith(".svg") or nome_file.endswith(".jpg")):
             percorso_completo = os.path.join(base_dir, nome_file)
             os.remove(percorso_completo)
             # print(f"Cancellato: {percorso_completo}")
@@ -536,8 +549,8 @@ entry_padding.insert(0, "150")
 entry_padding.grid(row=1, column=4, padx=(4, 12))
 
 # Checkbox ON/OFF
-var_onoff = tk.BooleanVar(value=False)
-chk_onoff = tk.Checkbutton(ctrl_frame, text="Jpeg Mask", variable=var_onoff)
+spazi_bianchi = tk.BooleanVar(value=True)
+chk_onoff = tk.Checkbutton(ctrl_frame, text="Spazi bianchi tra i pezzi", variable=spazi_bianchi)
 chk_onoff.grid(row=1, column=5, columnspan=2, padx=(12, 0), sticky='w')
 
 # bottone per aggiornare la sovrapposizione senza riaprire immagine
