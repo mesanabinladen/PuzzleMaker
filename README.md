@@ -7,7 +7,7 @@ Small Tkinter + Pillow utility to:
 - extract each expanded cell as a tile and compose a single output `puzzle_full.jpg`, plus an A4 `puzzle_page_x-y.jpg` (both A4 320ppi) to print every puzzle part, and `puzzle_contours_x-y.svg` with SVG contours for using with the laser engraver
 
 Requirements
-- Tested with Python 3.11
+- Tested with Python 3.11 on Windows and Mac
 - Pillow
 - tkinter (usually included with Python)
 - project module `pathcreator.py` (included in the repo)
@@ -46,8 +46,8 @@ Where output files are saved
 Preview vs processing
 - The UI shows a scaled preview for performance, but all processing (grid, masks, extraction) runs on the full-resolution image to preserve quality.
 
-Packaging with PyInstaller (Windows)
-- Recommended command (run from project folder where `puzzle_icon.ico` is located): read the `Pyinstaller instruction.TXT`
+Packaging with PyInstaller (Windows and Mac)
+- Recommended command (run from project folder): read the `Pyinstaller instruction.txt`
 
 Notes
 - The final puzzle will mantain the original image's dimensions

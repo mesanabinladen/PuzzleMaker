@@ -6,6 +6,7 @@ import os
 import sys
 import io
 import math
+import platform
 
 # impostazioni e costanti
 A4_TOTAL_W, A4_TOTAL_H = 2646, 3742  # dimensioni A4 a 320 PPI
@@ -137,14 +138,20 @@ def get_jpeg_bytes(grid_img, quality=100, subsampling=0, progressive=True, optim
     return buf.getvalue()
 
 def get_base_dir():
-    # determina cartella di uscita robusta per eseguibile e per script
-    if getattr(sys, "frozen", False):
-        # quando PyInstaller crea l'exe, sys.executable punta all'eseguibile
-        base_dir = os.path.dirname(sys.executable)
+    if getattr(sys, 'frozen', False):
+        exe_path = os.path.abspath(sys.executable)
+        if platform.system() == "Darwin":  # macOS
+            # .../PuzzleMaker.app/Contents/MacOS → .../dist
+            macos_dir = os.path.dirname(exe_path)         # .../Contents/MacOS
+            contents_dir = os.path.dirname(macos_dir)     # .../Contents
+            app_root = os.path.dirname(contents_dir)      # .../PuzzleMaker.app
+            ext_dir = os.path.dirname(app_root)          # .../dist
+            return ext_dir
+        else:  # Windows (o Linux con --onefile)
+            return os.path.dirname(exe_path)
     else:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    return base_dir
+        # in sviluppo: usa la cartella corrente
+        return os.getcwd()
 
 def save_final_images_for_cutting(grid_img, grid_img_mask, extra_w, extra_h, contours):
 

@@ -1,3 +1,11 @@
-x Pyinstaller
+Pyinstaller instructions
+
+Move on the project folder and execute the following:
+
+on WINDOWS
 
 pyinstaller --onefile --noconsole --icon=puzzle_icon.ico --name "PuzzleMaker" main.py  
+
+on MAC
+
+pyinstaller --windowed --icon=puzzle_icon.icns --name "PuzzleMaker" main.py
